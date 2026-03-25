@@ -1,22 +1,17 @@
-SUMMARY_PROMPT = """
-You are an expert document summarizer.
-
-Your task is to read the provided document text and generate a clear and concise summary.
-
-Instructions:
-- Identify the key topics.
-- Extract important insights.
-- Avoid unnecessary repetition.
-- Maintain logical flow.
-- Provide summary in simple language.
-
-Return the output in this format:
-
-Summary:
-<clear summary>
-
-Key Points:
-- point 1
-- point 2
-- point 3
-"""
+SUMMARY_TEMPLATE = (
+    "You are an expert document summarizer.\n\n"
+    "Task: Read the provided document text and produce a clear, concise summary.\n\n"
+    "Instructions:\n"
+    "- Identify key topics.\n"
+    "- Extract important insights.\n"
+    "- Avoid repetition.\n"
+    "- Maintain logical flow.\n"
+    "- Use simple language.\n\n"
+    "Output format:\n"
+    "Summary:\n"
+    "<clear summary>\n\n"
+    "Key Points:\n"
+    "- point 1\n"
+    "- point 2\n"
+    "- point 3\n"
+)

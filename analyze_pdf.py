@@ -1,138 +1,134 @@
 #!/usr/bin/env python3
 """
 PDF Codebase Analyzer - Hardcoded for PDF folder
-Just run: python analyze_pdf.py
+Run: python analyze_pdf.py
 """
 
 import sys
 import os
 from pathlib import Path
-from collections import defaultdict
+from collections import Counter
 import ast
 
 
-def main():
-    # Hardcoded path - always analyzes the PDF project
-    project_path = Path(r"C:\Users\Admin\Desktop\pdf")
-    
-    if not project_path.exists():
-        print(f"[ERROR] Path does not exist: {project_path}")
+def analyze_project(path: Path):
+    if not path.exists():
+        print(f"[ERROR] Path does not exist: {path}")
         return 1
-    
-    print("\n" + "="*80)
-    print("[PDF CODEBASE ANALYSIS]")
-    print("="*80)
-    print(f"[PROJECT] {project_path.name}")
-    print(f"[PATH] {project_path}")
-    print("="*80 + "\n")
-    
-    stats = {
-        'total_files': 0,
-        'code_files': defaultdict(int),
-        'total_lines': 0,
-        'functions': defaultdict(list),
-        'classes': defaultdict(list),
-        'imports': set(),
-        'files_detail': [],
-        'file_types': defaultdict(int)
+
+    skip_dirs = {
+        '.git', '__pycache__', '.env', 'venv', 'node_modules',
+        '.pytest_cache', 'uploads', 'dist', 'build'
     }
-    
-    skip_dirs = {'.git', '__pycache__', '.env', 'venv', 'node_modules', 
-                 '.pytest_cache', 'uploads', 'dist', 'build'}
-    
-    for root, dirs, files in os.walk(project_path):
+
+    total_files = 0
+    total_lines = 0
+    file_type_counts = Counter()
+    python_file_count = 0
+    imports = set()
+    functions_by_file = {}
+    classes_by_file = {}
+    files_detail = []
+
+    for root, dirs, files in os.walk(path, topdown=True):
+        # Filter out directories to skip
         dirs[:] = [d for d in dirs if d not in skip_dirs]
-        
-        for file in files:
-            file_path = Path(root) / file
-            rel_path = file_path.relative_to(project_path)
-            stats['total_files'] += 1
+
+        for filename in files:
+            total_files += 1
+            file_path = Path(root) / filename
+            rel_path = file_path.relative_to(path) if path in file_path.parents or file_path == path else file_path
             ext = file_path.suffix.lower()
-            stats['file_types'][ext] += 1
-            
-            if ext == '.py':
-                try:
-                    with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                        content = f.read()
-                        lines = content.split('\n')
-                        stats['total_lines'] += len(lines)
-                    
-                    tree = ast.parse(content)
-                    functions = [node.name for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)]
-                    classes = [node.name for node in ast.walk(tree) if isinstance(node, ast.ClassDef)]
-                    
-                    for func in functions:
-                        stats['functions'][str(rel_path)].append(func)
-                    for cls in classes:
-                        stats['classes'][str(rel_path)].append(cls)
-                    
-                    for node in ast.walk(tree):
-                        if isinstance(node, ast.Import):
-                            for alias in node.names:
-                                stats['imports'].add(alias.name.split('.')[0])
-                        elif isinstance(node, ast.ImportFrom):
-                            if node.module:
-                                stats['imports'].add(node.module.split('.')[0])
-                    
-                    stats['code_files']['Python'] += 1
-                    stats['files_detail'].append({
-                        'path': str(rel_path),
-                        'language': 'Python',
-                        'lines': len(lines),
-                        'functions': len(functions),
-                        'classes': len(classes)
-                    })
-                except:
-                    pass
-    
+            file_type_counts[ext] += 1
+
+            if ext != '.py':
+                continue
+
+            try:
+                with file_path.open('r', encoding='utf-8', errors='replace') as fh:
+                    content = fh.read()
+            except (OSError, UnicodeError) as e:
+                print(f"[WARNING] Could not read {file_path}: {e}")
+                continue
+
+            lines = content.count('\n') + (0 if content.endswith('\n') or content == "" else 1)
+            total_lines += lines
+
+            try:
+                tree = ast.parse(content)
+            except SyntaxError as e:
+                print(f"[WARNING] Syntax error parsing {file_path}: {e}")
+                # Still record line count and skip AST details for this file
+                files_detail.append({
+                    'path': str(rel_path),
+                    'language': 'Python',
+                    'lines': lines,
+                    'functions': 0,
+                    'classes': 0
+                })
+                continue
+
+            funcs = []
+            clss = []
+            for node in ast.walk(tree):
+                # Function (including async)
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    if getattr(node, 'name', None):
+                        funcs.append(node.name)
+                elif isinstance(node, ast.ClassDef):
+                    if getattr(node, 'name', None):
+                        clss.append(node.name)
+                elif isinstance(node, ast.Import):
+                    for alias in node.names:
+                        if alias.name:
+                            imports.add(alias.name.split('.')[0])
+                elif isinstance(node, ast.ImportFrom):
+                    if node.module:
+                        imports.add(node.module.split('.')[0])
+
+            functions_by_file[str(rel_path)] = funcs
+            classes_by_file[str(rel_path)] = clss
+            python_file_count += 1
+            files_detail.append({
+                'path': str(rel_path),
+                'language': 'Python',
+                'lines': lines,
+                'functions': len(funcs),
+                'classes': len(clss)
+            })
+
+    # Summaries
+    total_functions = sum(len(v) for v in functions_by_file.values())
+    total_classes = sum(len(v) for v in classes_by_file.values())
+
     # Print results
+    print("\n" + "=" * 80)
+    print("[PDF CODEBASE ANALYSIS]")
+    print("=" * 80)
+    print(f"[PROJECT] {path.name}")
+    print(f"[PATH] {path}")
+    print("=" * 80 + "\n")
+
     print("[SUMMARY]")
-    print("-" * 80)
-    print(f"  Total Files:          {stats['total_files']}")
-    print(f"  Total Lines:          {stats['total_lines']}")
-    print(f"  Total Functions:      {sum(len(v) for v in stats['functions'].values())}")
-    print(f"  Total Classes:        {sum(len(v) for v in stats['classes'].values())}")
-    
-    if stats['code_files']:
-        print("\n[LANGUAGES]")
-        print("-" * 80)
-        for lang, count in sorted(stats['code_files'].items(), key=lambda x: x[1], reverse=True):
-            print(f"  {lang:20} {count:5} files")
-    
-    if stats['file_types']:
-        print("\n[FILE TYPES]")
-        print("-" * 80)
-        for ext, count in sorted(stats['file_types'].items(), key=lambda x: x[1], reverse=True):
-            if ext:
-                print(f"  {ext:15} {count:5} files")
-    
-    if stats['imports']:
-        print("\n[DEPENDENCIES]")
-        print("-" * 80)
-        external_deps = [d for d in sorted(stats['imports']) 
-                       if d not in ['os', 'sys', 'json', 'pathlib', 'collections', 'ast', 'asyncio', 're']]
-        for dep in external_deps[:20]:
-            print(f"  {dep}")
-    
-    if stats['files_detail']:
-        print("\n[FILES]")
-        print("-" * 80)
-        for file_info in sorted(stats['files_detail'], key=lambda x: x['path']):
-            print(f"\n  {file_info['path']}")
-            print(f"    Language: {file_info['language']} | Lines: {file_info['lines']} | Functions: {file_info['functions']} | Classes: {file_info['classes']}")
-    
-    print("\n[STATISTICS]")
-    print("-" * 80)
-    if stats['total_files'] > 0:
-        print(f"  Average lines per file: {stats['total_lines'] // stats['total_files']}")
-    if stats['files_detail']:
-        largest = max(stats['files_detail'], key=lambda x: x['lines'])
-        print(f"  Largest file: {largest['path']} ({largest['lines']} lines)")
-    
-    print("\n" + "="*80)
-    print("[OK] Analysis Complete!")
-    print("="*80 + "\n")
+    print(f"Total files scanned: {total_files}")
+    print(f"Total lines (estimated): {total_lines}")
+    print("File types:")
+    for ext, count in file_type_counts.most_common():
+        print(f"  {ext or '[no ext]'}: {count}")
+    print(f"Python files: {python_file_count}")
+    print(f"Total functions: {total_functions}")
+    print(f"Total classes: {total_classes}")
+    print(f"Unique imports ({len(imports)}): {', '.join(sorted(imports)) if imports else '(none)'}")
+    print("\nTop 10 largest files by lines:")
+    for f in sorted(files_detail, key=lambda x: x['lines'], reverse=True)[:10]:
+        print(f"  {f['path']}: {f['lines']} lines, {f['functions']} funcs, {f['classes']} classes")
+
     return 0
+
+
+def main():
+    project_path = Path(r"C:\Users\Admin\Desktop\pdf")
+    return analyze_project(project_path)
 
 
 if __name__ == "__main__":

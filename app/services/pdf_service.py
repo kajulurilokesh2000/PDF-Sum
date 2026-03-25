@@ -1,18 +1,13 @@
 from PyPDF2 import PdfReader
 from fastapi import UploadFile
-import os
+import io
 
-async def extract_text_from_pdf(file: UploadFile, upload_dir: str) -> str:
-    file_path = os.path.join(upload_dir, file.filename)
-    
-    with open(file_path, "wb") as f:
-        content = await file.read()
-        f.write(content)
-    
-    reader = PdfReader(file_path)
-    text = ""
-    for page in reader.pages:
-        text += page.extract_text() + "\n"
-    
-    os.remove(file_path)
-    return text.strip()
+async def extract_text_from_pdf(upload_file: UploadFile) -> str:
+    """Extract text from an uploaded PDF without writing it to disk."""
+    data = await upload_file.read()
+    if not data:
+        return ""
+    buffer = io.BytesIO(data)
+    reader = PdfReader(buffer)
+    pages_text = [page.extract_text() or "" for page in reader.pages]
+    return "\n".join(pages_text).strip()
